@@ -1,0 +1,139 @@
+---
+title: "TidyTuesday_3.14.23"
+author: "Victor Porcelli"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# clear environment
+rm(list = ls())
+# set code chunk defaults
+knitr::opts_chunk$set(echo = TRUE)
+# source packages
+source("/Users/victorporcelli/Desktop/R Work/Functions/init.R")
+```
+
+```{r load data}
+dat_url <- "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-03-14/drugs.csv"
+dat <- read_csv(url(dat_url))
+dat %>% print()
+```
+
+
+```{r glimpse data}
+# look at a summary
+summary(dat)
+```
+
+```{r inspect data}
+dat %>% 
+  group_by(marketing_authorisation_holder_company_name) %>% 
+  tally() %>% 
+  arrange(desc(n))
+# despite there being 616 marketing companies, very few appear 10+ times
+
+# let's graph this to see if there's an inflection point
+dat %>% 
+  group_by(marketing_authorisation_holder_company_name) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(x = n)) +
+  geom_histogram(binwidth = 2, boundary = 0) +
+  geom_vline(aes(xintercept=mean(n)),
+            color="blue", linetype="dashed") +
+  geom_vline(aes(xintercept = 10),
+             color = "red", linetype = "solid")
+# it appears most companies are between 0-2, with a mean ~3.75 and very few appearing
+# over 10 times
+```
+
+
+```{r inspect data more}
+# how do "exceptional circumstances" relate to approval rating
+dat %>% 
+  group_by(exceptional_circumstances) %>% 
+  summarise(approval_rating = mean(conditional_approval, na.rm = T)) %>% 
+  print()
+# apparently not much -- means are quite similar, if anything lower for exceptional circumstances
+
+dat %>% 
+  group_by(accelerated_assessment) %>% 
+  summarise(approval_rating = mean(authorisation_status == "authorised", na.rm = T)) %>% 
+  print()
+# higher for accelerated assessment, but only slightly
+
+dat %>% 
+  group_by(active_substance) %>% 
+  tally() %>% 
+  arrange(desc(n))
+# I know nothing about this -- but it appears the most common active substance is meloxicam
+# Google says its an NSAID for rheumatoid arthritis
+
+# according to the article, rheumatoid arthritis did see a big jump in approvals in 2010 or so
+dat %>% 
+  filter(active_substance == "meloxicam") %>% 
+  select(therapeutic_area)
+# hm, but the therapeutic area is missing for all of these ?
+
+# how many therapeutic areas mention arthritis ?
+dat %>% 
+  filter(str_detect(tolower(therapeutic_area), "arthritis")) %>% 
+  group_by(therapeutic_area) %>% 
+  tally()
+# there's a bunch -- not sure where I'm going with this
+
+dat %>% 
+  filter(str_detect(tolower(therapeutic_area), "arthritis")) %>% 
+  mutate(year_published = year(as_date(first_published))) %>% 
+  group_by(year_published) %>% 
+  tally()
+# seems like the vast majority of these were published in 2018
+```
+
+```{r}
+# what's the trend look like in refusals?
+# there's this thing in behavioral psychology, which says if there's a bunch of approvals,
+# then there will be more denials after
+
+# for example, let's look at number of authorizations per quarter, and see if there's a trend
+dat %>% 
+  mutate(quarter = case_when(
+    month(decision_date) < 4 ~ 1,
+    month(decision_date) < 7 ~ 2,
+    month(decision_date) < 10 ~ 3,
+    month(decision_date) <= 12 ~ 4,
+    TRUE ~ NA_real_),
+    quarter_yr = ifelse(is.na(quarter), NA_character_,
+                        paste0(quarter, year(decision_date))),
+    .before = "medicine_name") %>% 
+  # there's very little data before 2013
+  filter(!is.na(quarter_yr),
+         !is.na(authorisation_status),
+         year(decision_date)>= "2013") %>% 
+  group_by(quarter_yr) %>% 
+  summarise(approval_pct = sum(authorisation_status == "authorised")/n(),
+            date_val = as_date(paste0(
+              as.numeric(str_sub(quarter_yr[1], 1, 1))*3,
+              "-",
+              str_sub(quarter_yr[1], 2, 5)
+            ), format = "%m-%Y")) %>% 
+  arrange(date_val) %>% 
+  mutate(spike = factor(case_when(approval_pct > lag(approval_pct) &
+                             approval_pct > lead(approval_pct) ~ 1,
+                           TRUE ~ 0))) %>%
+  ggplot(., aes(x = date_val, y = approval_pct)) +
+  geom_line() +
+  geom_point(aes(color = spike), size = 3) +
+  scale_color_manual(values = c("black", "red")) +
+  labs(y = "pct of drugs approved",
+       x = "quarter",
+       caption = str_wrap("Note: These data exclude observations missing a decision date or authorization status. The title references studies suggesting people, even in high stakes environments, underestimate the likelihood of sequential streaks by chance—in this case, a streak of drug approvals—leading to overcorrection. See: https://academic.oup.com/qje/article/131/3/1181/2590011."),
+       title = "Peaks, Then Valleys Suggest Gambler's Fallacy in European Drug Approvals") +
+  theme(plot.caption = element_text(margin = margin(t = 10, r = 10, b = 10, l = 0),
+                                    hjust = 0)) 
+# there definitely do appear to be spikes then dips!
+```
+
+
+
+
