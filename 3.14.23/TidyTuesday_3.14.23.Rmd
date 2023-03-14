@@ -134,6 +134,26 @@ dat %>%
 # there definitely do appear to be spikes then dips!
 ```
 
+```{r checks}
+dat %>% 
+  group_by(authorisation_status) %>% 
+  tally()
+# no weird values for authorisation_status
 
+summary(dat$decision_date)
+# dates are definitely heavily skewed toward more recent years, but seem normal
 
+dat %>% 
+  mutate(quarter = case_when(
+    month(decision_date) < 4 ~ 1,
+    month(decision_date) < 7 ~ 2,
+    month(decision_date) < 10 ~ 3,
+    month(decision_date) <= 12 ~ 4,
+    TRUE ~ NA_real_),
+    quarter_yr = ifelse(is.na(quarter), NA_character_,
+                        paste0(quarter, year(decision_date))),
+    .before = "medicine_name") %>% 
+  select(decision_date, quarter, quarter_yr)
+# looks correct
+```
 
